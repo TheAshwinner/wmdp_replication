@@ -1,0 +1,18 @@
+# Model configuration
+args:
+  model_name: "gpt2"  # HuggingFace model name
+  trust_remote_code: True
+
+  # Hardware settings
+  device: "mps"  # or "cpu" for CPU-only evaluation
+  batch_size: 8
+
+  # Evaluation settings
+  benchmarks:
+    - "wmdp"
+    - "mmlu"
+
+  # Additional settings
+  log_samples: False  # Whether to log individual evaluation samples
+  limit: 100  # Optional: limit number of samples (null for no limit)
+  cache_requests: None  # Whether to cache evaluation requests
