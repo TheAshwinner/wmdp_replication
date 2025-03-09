@@ -16,3 +16,4 @@ args:
   log_samples: False  # Whether to log individual evaluation samples
   limit: 100  # Optional: limit number of samples (null for no limit)
   cache_requests: None  # Whether to cache evaluation requests
+  results_path: "benchmark_results/gpt2"

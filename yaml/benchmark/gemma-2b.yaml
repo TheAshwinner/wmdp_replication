@@ -1,0 +1,11 @@
+args:
+  model_name: "google/gemma-2-2b-it"
+  unlearned_model: "models/google/gemma-2-2b-it/02/model.pt"
+  benchmarks:
+    - wmdp
+    - mmlu
+  batch_size: 4
+  log_samples: False
+  limit: 100
+  trust_remote_code: True
+  results_path: "benchmark_results/gemma-2b"

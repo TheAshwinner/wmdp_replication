@@ -1,15 +1,21 @@
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
+from dataset import JsonlDataset
+from model import Model
 
 class RMU:
-  def __init__(self, model, datasets, device, alpha, lr, c, hidden_dimension_size, ctx_window, seed = 42):
-    self.model = model
+  def __init__(self, model, tokenizer, datasets, device, alpha, lr, c, hidden_dimension_size, ctx_window, min_len, seed = 42):
+    self.unlearned_model = Model(model, tokenizer, device, seed)
+    self.frozen_model = Model(model, tokenizer, device, seed)
+    self.tokenizer = tokenizer
     self.datasets = datasets
     self.device = device
     self.alpha = alpha
     self.lr = lr
     self.c = c
+    self.ctx_window = ctx_window
+    self.min_len = min_len
     self.seed = seed
     self.hidden_dimension_size = hidden_dimension_size
     np.random.seed(seed)
@@ -21,10 +27,26 @@ class RMU:
     self.u = u
 
   def rmu_step(self, d_forget, d_retain, layer_idx):
-    d_forget_dataloader = DataLoader(d_forget, batch_size=1, shuffle=True)
-    d_retain_dataloader = DataLoader(d_retain, batch_size=1, shuffle=True)
+    print("Beginning RMU step...")
+    cyber_forget = JsonlDataset(
+      tokenizer=self.tokenizer, tokenizer_max_length=self.ctx_window, batch_size=1,
+      min_len=self.min_len, dataset_name="cyber-forget-corpus.jsonl", dataset_folder="data/", device=self.device
+    )
+    cyber_forget._load_dataset()
+    cyber_retain = JsonlDataset(
+      tokenizer=self.tokenizer, tokenizer_max_length=self.ctx_window, batch_size=1,
+      min_len=self.min_len, dataset_name="cyber-retain-corpus.jsonl", dataset_folder="data/", device=self.device
+      )
+    cyber_retain._load_dataset()
 
-    for batch in d_forget_dataloader:
-      input_ids = batch['input_ids'].to(self.device)
-      attention_mask = batch['attention_mask'].to(self.device)
-      
+    # TODO: Freeze the model parameters at a given layer
+    for i in range(len(cyber_forget.data)):
+      print(len(cyber_forget.data[i]["text"]))
+      act_forget = self.model.forward(cyber_forget.data[i]["text"], layer_idx)
+      act_retain = self.model.forward(cyber_retain.data[i]["text"], layer_idx)
+      break
+    
+    print(act_forget.shape)
+    print(act_retain.shape)
+
+    print("Finished RMU step...")
