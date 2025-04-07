@@ -10,8 +10,10 @@ class RMU:
   def __init__(self, model, tokenizer, datasets, device, alpha, lr, c, hidden_dimension_size, tokenizer_max_length, min_len, layer_idx, seed = 42):
     self.unlearned_model = Model(model, tokenizer, device, seed)
     self.frozen_model = copy.deepcopy(self.unlearned_model)
+    self.frozen_model = copy.deepcopy(self.unlearned_model)
     self.tokenizer = tokenizer
-    self.datasets = datasets
+    self.retain_datasets = []
+    self.forget_datasets = []
     self.device = device
     self.alpha = alpha
     self.lr = lr

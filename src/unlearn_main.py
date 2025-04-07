@@ -1,4 +1,5 @@
 import rmu
+import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import argparse
 import yaml
