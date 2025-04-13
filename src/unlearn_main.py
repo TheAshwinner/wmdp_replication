@@ -36,12 +36,6 @@ def main():
   model_name = config.get('model_name', 'openai-community/gpt2') # Default to gpt2 if not specified
   if model_name not in ALLOWED_MODELS:
     raise ValueError(f"Model {model_name} is not supported. Please use one of the following models: {ALLOWED_MODELS}")
-  print(f"\nLoading model: {model_name}...")
-  tokenizer = AutoTokenizer.from_pretrained(model_name)
-  model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
-
-  print("\nModel loaded:")
-  print(model)
 
   # --- TODO: Implement the rest of the unlearning logic using config ---
   # Example: Accessing other parameters
@@ -73,8 +67,7 @@ def main():
   print(f"Updated model path: {updated_model_path}")
   print(f"Seed: {seed}")
 
-  my_rmu = rmu.RMU(model=model,
-                   tokenizer=tokenizer,
+  my_rmu = rmu.RMU(model_name=model_name,
                    datasets=None,
                    device="cuda",
                    alpha=alpha,

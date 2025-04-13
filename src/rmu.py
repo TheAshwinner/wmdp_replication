@@ -1,17 +1,17 @@
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
+from transformers import AutoTokenizer, AutoModelForCausalLM
 from dataset import JsonlDataset
 from model import Model
 import tqdm
 import copy
 import pdb
+import os
+from pathlib import Path
 
 class RMU:
-  def __init__(self, model, tokenizer, datasets, device, alpha, lr, c, hidden_dimension_size, tokenizer_max_length, min_len, layer_idx, num_epochs, num_batches, seed = 42):
-    self.unlearned_model = Model(model, tokenizer, device, seed)
-    self.frozen_model = copy.deepcopy(self.unlearned_model)
-    self.tokenizer = tokenizer
+  def __init__(self, model_name, datasets, device, alpha, lr, c, hidden_dimension_size, tokenizer_max_length, min_len, layer_idx, num_epochs, num_batches, seed = 42):
     self.device = device
     self.alpha = alpha
     self.lr = lr
@@ -23,7 +23,13 @@ class RMU:
     self.layer_idx = layer_idx
     self.num_epochs = num_epochs
     self.num_batches = num_batches
+    self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+    self.unlearned_model = self.load_model(model_name)
+    self.frozen_model = copy.deepcopy(self.unlearned_model)
     self.retain_datasets, self.forget_datasets = self.load_datasets()
+    self.model_name = model_name
+    # Create models directory if it doesn't exist
+    Path("models").mkdir(exist_ok=True)
 
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -52,12 +58,6 @@ class RMU:
     for layer in unfreeze_layers:
       for param in self.unlearned_model.model.model.layers[layer].parameters():
         param.requires_grad = True
-
-    print("printing params and grads")
-    for param in self.unlearned_model.model.parameters():
-      if param.requires_grad:
-        print(param.requires_grad)
-    print("done printing params and grads")
     
 
   def retain_loss(self, act_retain, act_forget):
@@ -85,11 +85,28 @@ class RMU:
     cyber_retain._load_dataset()
     return [cyber_forget], [cyber_retain]
 
-  def rmu_step(self):
+  def load_model(self, model_name):
+    model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
+    my_model = Model(model, self.tokenizer, self.device, self.seed)
+    return my_model
+    
+  def save_checkpoint(self, epoch, batch_id):
+    """Save the current state of the unlearned model."""
+    checkpoint_path = f"models/unlearned_epoch{epoch}_batch{batch_id}"
+    self.unlearned_model.model.save_pretrained(checkpoint_path)
+    self.tokenizer.save_pretrained(checkpoint_path)
+    print(f"Saved checkpoint to {checkpoint_path}")
+    
+  def rmu_step(self, save_frequency=100):
+    """
+    Run RMU training with periodic checkpoint saving.
+    Args:
+        save_frequency: Save checkpoint every N batches
+    """
     print("Beginning RMU step...")
 
     for epoch in tqdm.tqdm(range(self.num_epochs)):
-      for batch_id in range(self.num_batches):
+      for batch_id in tqdm.tqdm(range(self.num_batches)):
         # interleaving
         dataset_id = batch_id % len(self.forget_datasets)
         element_id = batch_id // len(self.forget_datasets)
@@ -112,6 +129,12 @@ class RMU:
         full_loss.backward()
         optimizer.step()
 
+        # Save checkpoint periodically
+        if batch_id > 0 and batch_id % save_frequency == 0:
+          self.save_checkpoint(epoch, batch_id)
+
+      # Save checkpoint at the end of each epoch
+      self.save_checkpoint(epoch, "final")
 
     print("Finished RMU step...")
     return
