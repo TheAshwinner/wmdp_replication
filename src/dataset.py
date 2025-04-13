@@ -20,7 +20,7 @@ class JsonlDataset():
     item = self.data[idx]
     input_ids = self.tokenizer(item["text"], return_tensors="pt", padding=True, truncation=True, max_length=self.tokenizer_max_length)
     inputs = {key: value.to(self.device) for key, value in input_ids.items()}
-    return {"input_ids": inputs["input_ids"].squeeze(0), "attention_mask": inputs["attention_mask"].squeeze(0)}
+    return {"input_ids": inputs["input_ids"], "attention_mask": inputs["attention_mask"]}
 
   def _load_dataset(self):
     dataset_path = os.path.join(self.dataset_folder, self.dataset_name)

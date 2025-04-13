@@ -5,11 +5,11 @@ from dataset import JsonlDataset
 from model import Model
 import tqdm
 import copy
+import pdb
 
 class RMU:
   def __init__(self, model, tokenizer, datasets, device, alpha, lr, c, hidden_dimension_size, tokenizer_max_length, min_len, layer_idx, seed = 42):
     self.unlearned_model = Model(model, tokenizer, device, seed)
-    self.frozen_model = copy.deepcopy(self.unlearned_model)
     self.frozen_model = copy.deepcopy(self.unlearned_model)
     self.tokenizer = tokenizer
     self.retain_datasets = []
@@ -64,9 +64,6 @@ class RMU:
     return final
 
   def forget_loss(self, act_updated):
-    print(act_updated.shape)
-    print(self.u.shape)
-    print(self.u[:len(act_updated[0]), :].shape)
     l2_squared = torch.sum((act_updated - self.c * self.u[:len(act_updated[0]), :]) ** 2, dim=-1)
     final = torch.mean(l2_squared)
     return final
@@ -83,23 +80,23 @@ class RMU:
       min_len=self.min_len, dataset_name="cyber-retain-corpus.jsonl", dataset_folder="data/", device=self.device
       )
     cyber_retain._load_dataset()
+    print("after loading datasets")
 
     # Retain loss
     for i in tqdm.tqdm(range(len(cyber_retain.data))):
-      print(len(cyber_retain.data[i]["text"]))
-      act_updated_retain = self.unlearned_model.forward(cyber_retain.data[i]["text"], self.layer_idx)
-      with torch.no_grad():
-        act_frozen_retain = self.frozen_model.forward(cyber_retain.data[i]["text"], self.layer_idx)
+      act_updated_retain = self.unlearned_model.forward(cyber_retain[i]["input_ids"], self.layer_idx, with_grad=True)
+      act_frozen_retain = self.frozen_model.forward(cyber_retain[i]["input_ids"], self.layer_idx, with_grad=False)
       retain_loss = self.retain_loss(act_updated_retain, act_frozen_retain)
       print(retain_loss)
       break
 
     # Forget loss
     for i in tqdm.tqdm(range(len(cyber_forget.data))):
-      act_updated_forget = self.unlearned_model.forward(cyber_forget.data[i]["text"], self.layer_idx)
+      act_updated_forget = self.unlearned_model.forward(cyber_forget[i]["input_ids"], self.layer_idx, with_grad=True)
       forget_loss = self.forget_loss(act_updated_forget)
       print(forget_loss)
       break
+
 
     print("act_updated_retain.requires_grad:", act_updated_retain.requires_grad)
     print("act_updated_forget.requires_grad:", act_updated_forget.requires_grad)

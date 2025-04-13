@@ -3,6 +3,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import argparse
 import yaml
+import pdb
 
 ALLOWED_MODELS = ["openai-community/gpt2", "HuggingFaceH4/zephyr-7b-beta", "google/gemma-2-2b-it"]
 
@@ -37,7 +38,7 @@ def main():
     raise ValueError(f"Model {model_name} is not supported. Please use one of the following models: {ALLOWED_MODELS}")
   print(f"\nLoading model: {model_name}...")
   tokenizer = AutoTokenizer.from_pretrained(model_name)
-  model = AutoModelForCausalLM.from_pretrained(model_name)
+  model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
 
   print("\nModel loaded:")
   print(model)
