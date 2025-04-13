@@ -8,12 +8,10 @@ import copy
 import pdb
 
 class RMU:
-  def __init__(self, model, tokenizer, datasets, device, alpha, lr, c, hidden_dimension_size, tokenizer_max_length, min_len, layer_idx, seed = 42):
+  def __init__(self, model, tokenizer, datasets, device, alpha, lr, c, hidden_dimension_size, tokenizer_max_length, min_len, layer_idx, num_epochs, num_batches, seed = 42):
     self.unlearned_model = Model(model, tokenizer, device, seed)
     self.frozen_model = copy.deepcopy(self.unlearned_model)
     self.tokenizer = tokenizer
-    self.retain_datasets = []
-    self.forget_datasets = []
     self.device = device
     self.alpha = alpha
     self.lr = lr
@@ -23,6 +21,10 @@ class RMU:
     self.seed = seed
     self.hidden_dimension_size = hidden_dimension_size
     self.layer_idx = layer_idx
+    self.num_epochs = num_epochs
+    self.num_batches = num_batches
+    self.retain_datasets, self.forget_datasets = self.load_datasets()
+
     np.random.seed(seed)
     torch.manual_seed(seed)
     
@@ -68,8 +70,9 @@ class RMU:
     final = torch.mean(l2_squared)
     return final
 
-  def rmu_step(self):
-    print("Beginning RMU step...")
+  def load_datasets(self):
+    # TODO: extend this to other datasets beyond cyber
+    # TODO: one edge case to handle is what happens if the two datasets have different lengths
     cyber_forget = JsonlDataset(
       tokenizer=self.tokenizer, tokenizer_max_length=self.tokenizer_max_length, batch_size=1,
       min_len=self.min_len, dataset_name="cyber-forget-corpus.jsonl", dataset_folder="data/", device=self.device
@@ -80,32 +83,35 @@ class RMU:
       min_len=self.min_len, dataset_name="cyber-retain-corpus.jsonl", dataset_folder="data/", device=self.device
       )
     cyber_retain._load_dataset()
-    print("after loading datasets")
+    return [cyber_forget], [cyber_retain]
 
-    # Retain loss
-    for i in tqdm.tqdm(range(len(cyber_retain.data))):
-      act_updated_retain = self.unlearned_model.forward(cyber_retain[i]["input_ids"], self.layer_idx, with_grad=True)
-      act_frozen_retain = self.frozen_model.forward(cyber_retain[i]["input_ids"], self.layer_idx, with_grad=False)
-      retain_loss = self.retain_loss(act_updated_retain, act_frozen_retain)
-      print(retain_loss)
-      break
+  def rmu_step(self):
+    print("Beginning RMU step...")
 
-    # Forget loss
-    for i in tqdm.tqdm(range(len(cyber_forget.data))):
-      act_updated_forget = self.unlearned_model.forward(cyber_forget[i]["input_ids"], self.layer_idx, with_grad=True)
-      forget_loss = self.forget_loss(act_updated_forget)
-      print(forget_loss)
-      break
+    for epoch in tqdm.tqdm(range(self.num_epochs)):
+      for batch_id in range(self.num_batches):
+        # interleaving
+        dataset_id = batch_id % len(self.forget_datasets)
+        element_id = batch_id // len(self.forget_datasets)
 
+        forget_input = self.forget_datasets[dataset_id][element_id]["input_ids"]
+        retain_input = self.retain_datasets[dataset_id][element_id]["input_ids"]
 
-    print("act_updated_retain.requires_grad:", act_updated_retain.requires_grad)
-    print("act_updated_forget.requires_grad:", act_updated_forget.requires_grad)
+        # Forget loss
+        act_unlearned_forget = self.unlearned_model.forward(forget_input, self.layer_idx, with_grad=True)
+        forget_loss = self.forget_loss(act_unlearned_forget)
 
-    full_loss = forget_loss + self.alpha * retain_loss
-    optimizer = torch.optim.AdamW(self.unlearned_model.model.parameters(), lr=self.lr)
-    optimizer.zero_grad()
-    full_loss.backward()
-    optimizer.step()
+        # Retain loss
+        act_unlearned_retain = self.unlearned_model.forward(retain_input, self.layer_idx, with_grad=True)
+        act_frozen_retain = self.frozen_model.forward(retain_input, self.layer_idx, with_grad=False)
+        retain_loss = self.retain_loss(act_unlearned_retain, act_frozen_retain)
+
+        full_loss = forget_loss + self.alpha * retain_loss
+        optimizer = torch.optim.AdamW(self.unlearned_model.model.parameters(), lr=self.lr)
+        optimizer.zero_grad()
+        full_loss.backward()
+        optimizer.step()
+
 
     print("Finished RMU step...")
     return

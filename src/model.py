@@ -27,7 +27,6 @@ class Model():
     try:
       hook = self.model.model.layers[layer_idx].register_forward_hook(hook_fn)
       
-      print("before the actual forward")
 
       if with_grad:
         _ = self.model(inputs)
@@ -37,7 +36,6 @@ class Model():
 
     finally:
       hook.remove()
-    print("Model.forward(): ")
     if len(activations) != 1:
       raise ValueError("Activations length is not 1. Surprising.")
 

@@ -84,6 +84,8 @@ def main():
                    tokenizer_max_length=1024,
                    min_len=30,
                    layer_idx=7, # todo: maybe change this later
+                   num_epochs=num_epochs,
+                   num_batches=num_batches,
                    seed=seed)
   my_rmu.rmu_step()
 
