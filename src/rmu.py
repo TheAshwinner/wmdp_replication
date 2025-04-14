@@ -1,17 +1,15 @@
 import torch
 import numpy as np
-from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from dataset import JsonlDataset
+from dataset import JsonlDataset, WikitextDataset, BaseDataset
 from model import Model
 import tqdm
 import copy
-import pdb
-import os
 from pathlib import Path
+import pdb
 
 class RMU:
-  def __init__(self, model_name, datasets, device, alpha, lr, c, hidden_dimension_size, tokenizer_max_length, min_len, layer_idx, num_epochs, num_batches, seed = 42):
+  def __init__(self, model_name, forget_datasets, retain_datasets, device, alpha, lr, c, hidden_dimension_size, tokenizer_max_length, min_len, layer_idx, num_epochs, num_batches, seed = 42):
     self.device = device
     self.alpha = alpha
     self.lr = lr
@@ -23,10 +21,11 @@ class RMU:
     self.layer_idx = layer_idx
     self.num_epochs = num_epochs
     self.num_batches = num_batches
+    self.batch_size = 1
     self.tokenizer = AutoTokenizer.from_pretrained(model_name)
     self.unlearned_model = self.load_model(model_name)
     self.frozen_model = copy.deepcopy(self.unlearned_model)
-    self.retain_datasets, self.forget_datasets = self.load_datasets()
+    self.forget_datasets, self.retain_datasets = self.load_datasets(forget_datasets, retain_datasets)
     self.model_name = model_name
     # Create models directory if it doesn't exist
     Path("models").mkdir(exist_ok=True)
@@ -70,20 +69,60 @@ class RMU:
     final = torch.mean(l2_squared)
     return final
 
-  def load_datasets(self):
+  def load_datasets(self, forget_datasets, retain_datasets) -> tuple[list[BaseDataset], list[BaseDataset]]:
+    """
+    Load and prepare the datasets for model unlearning.
+    
+    This method processes the dataset names provided for both forgetting and retaining,
+    converting them into actual dataset objects that can be used during training.
+    
+    Args:
+        forget_datasets (list[str]): List of dataset names to be used for unlearning/forgetting.
+        retain_datasets (list[str]): List of dataset names to be used for retaining knowledge.
+    
+    Returns:
+        tuple[list[BaseDataset], list[BaseDataset]]: A tuple containing:
+            - List of processed forget datasets
+            - List of processed retain datasets
+    
+    Note:
+        - Each dataset is loaded and processed using the parse_dataset method
+        - Current implementation has TODOs for extending beyond cyber datasets
+        - There's a potential edge case when datasets have different lengths
+    """
+
     # TODO: extend this to other datasets beyond cyber
     # TODO: one edge case to handle is what happens if the two datasets have different lengths
-    cyber_forget = JsonlDataset(
-      tokenizer=self.tokenizer, tokenizer_max_length=self.tokenizer_max_length, batch_size=1,
-      min_len=self.min_len, dataset_name="cyber-forget-corpus.jsonl", dataset_folder="data/", device=self.device
-    )
-    cyber_forget._load_dataset()
-    cyber_retain = JsonlDataset(
-      tokenizer=self.tokenizer, tokenizer_max_length=self.tokenizer_max_length, batch_size=1,
-      min_len=self.min_len, dataset_name="cyber-retain-corpus.jsonl", dataset_folder="data/", device=self.device
+
+    processed_forget_datasets = []
+    for dataset_name in forget_datasets:
+      dataset = self.parse_dataset(dataset_name)
+      dataset._load_dataset()
+      processed_forget_datasets.append(dataset)
+
+    processed_retain_datasets = []
+    for dataset_name in retain_datasets:
+      dataset = self.parse_dataset(dataset_name)
+      dataset._load_dataset()
+      processed_retain_datasets.append(dataset)
+
+    return processed_forget_datasets, processed_retain_datasets
+  
+  def parse_dataset(self, dataset_name) -> BaseDataset:
+    valid_dataset_names = ["wikitext", "cyber-forget-corpus.jsonl", "bio-forget-corpus.jsonl", "cyber-retain-corpus.jsonl", "bio-retain-corpus.jsonl"]
+    if dataset_name not in valid_dataset_names:
+      raise ValueError(f"Invalid dataset name. dataset_name: {dataset_name}")
+    
+    if dataset_name == "wikitext":
+      return WikitextDataset(
+        tokenizer=self.tokenizer, tokenizer_max_length=self.tokenizer_max_length, batch_size=self.batch_size,
+        min_len=self.min_len, device=self.device
       )
-    cyber_retain._load_dataset()
-    return [cyber_forget], [cyber_retain]
+    else:
+      return JsonlDataset(
+        tokenizer=self.tokenizer, tokenizer_max_length=self.tokenizer_max_length, batch_size=self.batch_size,
+        min_len=self.min_len, dataset_name=dataset_name, dataset_folder="data/", device=self.device
+      )
 
   def load_model(self, model_name):
     model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
@@ -99,20 +138,37 @@ class RMU:
     
   def rmu_step(self, save_frequency=100):
     """
-    Run RMU training with periodic checkpoint saving.
+    Perform one step of the RMU algorithm.
+    
+    This method implements the core RMU algorithm, which aims to selectively unlearn 
+    specific information from the model while retaining general capabilities.
+    The process iterates through epochs and batches, computing both forget and retain losses,
+    and updating the model parameters accordingly.
+    
     Args:
-        save_frequency: Save checkpoint every N batches
+        save_frequency (int, optional): Number of batches after which to save a checkpoint.
+            Defaults to 100.
+    
+    Returns:
+        None: The method updates the model in-place and saves checkpoints to disk.
+    
+    Note:
+        - Forget loss pushes activations toward a random unit vector
+        - Retain loss ensures activations on retain data remain similar to the original model
+        - Checkpoints are saved periodically and at the end of each epoch
     """
     print("Beginning RMU step...")
 
     for epoch in tqdm.tqdm(range(self.num_epochs)):
       for batch_id in tqdm.tqdm(range(self.num_batches)):
         # interleaving
-        dataset_id = batch_id % len(self.forget_datasets)
-        element_id = batch_id // len(self.forget_datasets)
+        forget_dataset_id = batch_id % len(self.forget_datasets)
+        forget_element_id = batch_id // len(self.forget_datasets)
+        retain_dataset_id = batch_id % len(self.retain_datasets)
+        retain_element_id = batch_id // len(self.retain_datasets)
 
-        forget_input = self.forget_datasets[dataset_id][element_id]["input_ids"]
-        retain_input = self.retain_datasets[dataset_id][element_id]["input_ids"]
+        forget_input = self.forget_datasets[forget_dataset_id][forget_element_id]["input_ids"]
+        retain_input = self.retain_datasets[retain_dataset_id][retain_element_id]["input_ids"]
 
         # Forget loss
         act_unlearned_forget = self.unlearned_model.forward(forget_input, self.layer_idx, with_grad=True)

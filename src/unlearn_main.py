@@ -1,9 +1,6 @@
 import rmu
-import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
 import argparse
 import yaml
-import pdb
 
 ALLOWED_MODELS = ["openai-community/gpt2", "HuggingFaceH4/zephyr-7b-beta", "google/gemma-2-2b-it"]
 
@@ -68,7 +65,8 @@ def main():
   print(f"Seed: {seed}")
 
   my_rmu = rmu.RMU(model_name=model_name,
-                   datasets=None,
+                   forget_datasets=forget_datasets,
+                   retain_datasets=retain_datasets,
                    device="cuda",
                    alpha=alpha,
                    lr=float(learning_rate),
