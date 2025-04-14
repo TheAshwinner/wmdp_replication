@@ -47,16 +47,16 @@ class RMU:
     for layer in unfreeze_layers:
       if layer < 0:
         raise ValueError(f"Layer index cannot be negative. layer: {layer}")
-      if layer >= len(self.unlearned_model.model.model.layers):
-        raise ValueError(f"Layer index cannot be greater than the number of layers in the model. layer: {layer}, num layers:  {len(self.unlearned_model.model.model.layers)}")
+      if layer >= len(self.unlearned_model.get_layers()):
+        raise ValueError(f"Layer index cannot be greater than the number of layers in the model. layer: {layer}, num layers:  {len(self.unlearned_model.get_layers())}")
 
     # Freeze all layers first
-    for param in self.unlearned_model.model.parameters():
+    for param in self.unlearned_model.get_parameters():
       param.requires_grad = False
 
     # Unfreeze the specified layers
     for layer in unfreeze_layers:
-      for param in self.unlearned_model.model.model.layers[layer].parameters():
+      for param in self.unlearned_model.get_layers()[layer].parameters():
         param.requires_grad = True
     
 
@@ -87,13 +87,13 @@ class RMU:
 
   def load_model(self, model_name):
     model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16)
-    my_model = Model(model, self.tokenizer, self.device, self.seed)
+    my_model = Model(model, self.device, self.seed)
     return my_model
     
   def save_checkpoint(self, epoch, batch_id):
     """Save the current state of the unlearned model."""
     checkpoint_path = f"models/unlearned_epoch{epoch}_batch{batch_id}"
-    self.unlearned_model.model.save_pretrained(checkpoint_path)
+    self.unlearned_model.save_model(checkpoint_path)
     self.tokenizer.save_pretrained(checkpoint_path)
     print(f"Saved checkpoint to {checkpoint_path}")
     
@@ -124,7 +124,7 @@ class RMU:
         retain_loss = self.retain_loss(act_unlearned_retain, act_frozen_retain)
 
         full_loss = forget_loss + self.alpha * retain_loss
-        optimizer = torch.optim.AdamW(self.unlearned_model.model.parameters(), lr=self.lr)
+        optimizer = torch.optim.AdamW(self.unlearned_model.get_parameters(), lr=self.lr)
         optimizer.zero_grad()
         full_loss.backward()
         optimizer.step()
