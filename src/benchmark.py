@@ -5,6 +5,8 @@ import argparse
 from utils import load_yaml_config, CustomJSONEncoder
 from typing import Dict, Any
 import torch
+import matplotlib.pyplot as plt
+import numpy as np
 
 class Benchmark:
     def __init__(self, args, results_path):
@@ -58,6 +60,80 @@ class Benchmark:
         
         return results
 
+    def generate_comparison_plots(self, results, eval_dir):
+        """Generate plots comparing base and unlearned model metrics."""
+        if 'base_model' not in results or 'unlearned_model' not in results:
+            print("Missing data for comparison plot")
+            return
+            
+        base_model_results = results['base_model']['results']
+        unlearned_model_results = results['unlearned_model']['results']
+        
+        base_model_name = base_model_results.get('model_name', 'Base Model')
+        unlearned_model_name = unlearned_model_results.get('model_name', 'Unlearned Model')
+        
+        # Extract metrics for comparison
+        metrics = [
+            ('mmlu', 'acc,none', 'MMLU'),
+            ('wmdp_bio', 'acc,none', 'WMDP Bio'),
+            ('wmdp_chem', 'acc,none', 'WMDP Chem'),
+            ('wmdp_cyber', 'acc,none', 'WMDP Cyber')
+        ]
+        
+        # Set up bar chart
+        labels = [m[2] for m in metrics]
+        base_values = []
+        unlearned_values = []
+        
+        # Collect values if available
+        for metric, key, _ in metrics:
+            if metric in base_model_results and key in base_model_results[metric]:
+                base_values.append(base_model_results[metric][key])
+            else:
+                base_values.append(0)
+                
+            if metric in unlearned_model_results and key in unlearned_model_results[metric]:
+                unlearned_values.append(unlearned_model_results[metric][key])
+            else:
+                unlearned_values.append(0)
+        
+        # Create plot
+        x = np.arange(len(labels))
+        width = 0.35
+        
+        fig, ax = plt.figure(figsize=(10, 7)), plt.axes()
+        rects1 = ax.bar(x - width/2, base_values, width, label=base_model_name)
+        rects2 = ax.bar(x + width/2, unlearned_values, width, label=unlearned_model_name)
+        
+        # Add labels and formatting
+        ax.set_ylabel('Accuracy')
+        ax.set_title('Model Performance Comparison')
+        ax.set_xticks(x)
+        ax.set_xticklabels(labels)
+        ax.legend()
+        
+        # Add value labels on top of bars
+        def autolabel(rects):
+            for rect in rects:
+                height = rect.get_height()
+                ax.annotate(f'{height:.3f}',
+                            xy=(rect.get_x() + rect.get_width() / 2, height),
+                            xytext=(0, 3),  # 3 points vertical offset
+                            textcoords="offset points",
+                            ha='center', va='bottom')
+                
+        autolabel(rects1)
+        autolabel(rects2)
+        
+        plt.tight_layout()
+        
+        # Save the plot
+        plot_path = os.path.join(eval_dir, "model_comparison.png")
+        plt.savefig(plot_path)
+        plt.close()
+        
+        print(f"Comparison plot saved to {plot_path}")
+
     def save_results(self, results) -> None:
         # Create a timestamp-based directory for this evaluation run
         import datetime
@@ -81,6 +157,9 @@ class Benchmark:
             with open(os.path.join(unlearned_dir, "results.json"), "w") as f:
                 json.dump(results['unlearned_model']['results'], f, indent=2, ensure_ascii=False, cls=CustomJSONEncoder)
         
+        # Generate comparison plots
+        self.generate_comparison_plots(results, eval_dir)
+
 
 def main():
     parser = argparse.ArgumentParser("Run unlearning benchmarks")
