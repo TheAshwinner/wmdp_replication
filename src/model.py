@@ -1,7 +1,5 @@
 import torch
 
-from typing import List
-import pdb
 
 class Model():
   def __init__(self, model, device, seed = 42):
