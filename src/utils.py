@@ -1,11 +1,11 @@
 import argparse
 import yaml
-from typing import Dict, Any
+from typing import Any
 import json
 import numpy as np
 import torch
 
-def load_yaml_config(config_path: str) -> Dict[str, Any]:
+def load_yaml_config(config_path: str) -> dict[str, Any]:
     """
     Load and parse a YAML configuration file.
     
@@ -13,7 +13,7 @@ def load_yaml_config(config_path: str) -> Dict[str, Any]:
         config_path (str): Path to the YAML configuration file
         
     Returns:
-        Dict[str, Any]: Dictionary containing the configuration parameters
+        dict[str, Any]: Dictionary containing the configuration parameters
         
     Example:
         >>> config = load_config("yaml_files/finetuning/gpt2.yaml")
