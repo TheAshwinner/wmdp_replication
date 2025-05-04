@@ -77,6 +77,8 @@ def main():
                    layer_idx=7, # todo: maybe change this later
                    num_epochs=num_epochs,
                    num_batches=num_batches,
+                   batch_size=batch_size,
+                   update_layer_ids=update_layer_ids,
                    seed=seed)
   my_rmu.rmu_step()
 

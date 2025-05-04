@@ -9,7 +9,7 @@ from pathlib import Path
 import pdb
 
 class RMU:
-  def __init__(self, model_name, forget_datasets, retain_datasets, device, alpha, lr, c, hidden_dimension_size, tokenizer_max_length, min_len, layer_idx, num_epochs, num_batches, seed = 42):
+  def __init__(self, model_name, forget_datasets, retain_datasets, device, alpha, lr, c, hidden_dimension_size, tokenizer_max_length, min_len, layer_idx, num_epochs, num_batches, batch_size, update_layer_ids, seed = 42):
     self.device = device
     self.alpha = alpha
     self.lr = lr
@@ -21,12 +21,13 @@ class RMU:
     self.layer_idx = layer_idx
     self.num_epochs = num_epochs
     self.num_batches = num_batches
-    self.batch_size = 1
+    self.batch_size = batch_size
     self.tokenizer = AutoTokenizer.from_pretrained(model_name)
     self.unlearned_model = self.load_model(model_name)
     self.frozen_model = copy.deepcopy(self.unlearned_model)
     self.forget_datasets, self.retain_datasets = self.load_datasets(forget_datasets, retain_datasets)
     self.model_name = model_name
+    self.optimizer = self.load_optimizer(update_layer_ids)
     # Create models directory if it doesn't exist
     Path("models").mkdir(exist_ok=True)
 
@@ -36,10 +37,25 @@ class RMU:
     self.freeze_layers_in_unlearned_model([self.layer_idx-2, self.layer_idx-1, self.layer_idx])
 
     # Initialize random unit vector u
-    some_big_number = 15000
-    u = torch.randn(some_big_number, self.hidden_dimension_size).to(self.device)
-    u = u / torch.linalg.norm(u, dim=-1, keepdim=True).to(self.device)
-    self.u = u
+    self.control_vector_list = self.generate_control_vectors()
+  
+  def load_optimizer(self, update_layer_ids):
+    params = []
+    for layer_id in update_layer_ids:
+      if layer_id < 0 or layer_id >= len(self.unlearned_model.get_layers()):
+        raise ValueError(f"Layer index cannot be negative or greater than the number of layers in the model. layer_id: {layer_id}, num layers: {len(self.unlearned_model.get_layers())}")
+      for param in self.unlearned_model.get_layers()[layer_id].parameters():
+        params.append(param)
+    return torch.optim.AdamW(params, lr=self.lr)
+  
+  def generate_control_vectors(self):
+    control_vector_list = []
+    some_big_number = 1
+    for _ in range(self.num_batches):
+      u = torch.randn(some_big_number, self.hidden_dimension_size).to(self.device)
+      u = u / torch.linalg.norm(u, dim=-1, keepdim=True).to(self.device)
+      control_vector_list.append(u)
+    return control_vector_list
 
   def freeze_layers_in_unlearned_model(self, unfreeze_layers: list[int]):
     # Validation
@@ -64,8 +80,9 @@ class RMU:
     final = torch.mean(l2_squared)
     return final
 
-  def forget_loss(self, act_updated):
-    l2_squared = torch.sum((act_updated - self.c * self.u[:len(act_updated[0]), :]) ** 2, dim=-1)
+  def forget_loss(self, act_updated, dataset_id):
+    control_vector = self.control_vector_list[dataset_id].expand_as(act_updated)
+    l2_squared = torch.sum((act_updated - self.c * control_vector[:len(act_updated[0]), :]) ** 2, dim=-1)
     final = torch.mean(l2_squared)
     return final
 
@@ -172,7 +189,7 @@ class RMU:
 
         # Forget loss
         act_unlearned_forget = self.unlearned_model.forward(forget_input, self.layer_idx, with_grad=True)
-        forget_loss = self.forget_loss(act_unlearned_forget)
+        forget_loss = self.forget_loss(act_unlearned_forget, forget_dataset_id)
 
         # Retain loss
         act_unlearned_retain = self.unlearned_model.forward(retain_input, self.layer_idx, with_grad=True)
@@ -180,10 +197,9 @@ class RMU:
         retain_loss = self.retain_loss(act_unlearned_retain, act_frozen_retain)
 
         full_loss = forget_loss + self.alpha * retain_loss
-        optimizer = torch.optim.AdamW(self.unlearned_model.get_parameters(), lr=self.lr)
-        optimizer.zero_grad()
+        self.optimizer.zero_grad()
         full_loss.backward()
-        optimizer.step()
+        self.optimizer.step()
 
         # Save checkpoint periodically
         if batch_id > 0 and batch_id % save_frequency == 0:
