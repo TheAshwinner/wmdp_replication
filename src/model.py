@@ -12,8 +12,8 @@ class Model():
 
   
   def forward(self, inputs, layer_idx: int, with_grad=False):
-    if layer_idx >= len(self.model.model.layers):
-      raise ValueError(f"Layer index {layer_idx} is out of bounds for the model. The model has {len(self.model.transformer.h)} layers.")
+    if layer_idx >= len(self.get_layers()):
+      raise ValueError(f"Layer index {layer_idx} is out of bounds for the model. The model has {len(self.get_layers())} layers.")
     
     inputs = inputs.to(self.device)
     
@@ -24,7 +24,7 @@ class Model():
 
 
     try:
-      hook = self.model.model.layers[layer_idx].register_forward_hook(hook_fn)
+      hook = self.get_layers()[layer_idx].register_forward_hook(hook_fn)
       
 
       if with_grad:
